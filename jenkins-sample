@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+    tools {
+        maven 'MAVEN3'
+
+    }
+    stages {
+        stage('Fetch Code'){
+            steps {
+                git branch: 'main', url: 'https://github.com/jaiswaladi246/Petclinic.git'
+            }
+        }
+        stage('Build') {
+            steps {
+                sh 'mvn install -DskipTests'
+            }
+            post{
+                success {
+                    echo "Now Archiving"
+                    archiveArtifacts artifacts: '**/*.war'
+                }
+            }
+        }
+        stage('UNIT TEST') {
+            steps {
+                sh 'mvn test' 
+            }
+        }
+        stage('Checkstyle Analysis') {
+            steps {
+                sh 'mvn checkstyle:checkstyle' 
+            }
+        }
+        stage('Sonar Analysis') {
+            environment {
+                scannerHome = tool 'sonar'
+            }
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh ''' mvn sonar:sonar -Dsonar.url=http://172.17.0.1:9000/ -Dsonar.login=squ_aee23590efda7db799fad7f3014399fa0848e706 \
+                -Dsonar.projectName=Petclinic \
+                -Dsonar.java.binaries=. \
+                -Dsonar.projectKey=Petclinic'''
+                }
+            }
+        }
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+        stage("UploadArtifact"){
+            steps{
+                nexusArtifactUploader(
+                  nexusVersion: 'nexus3',
+                  protocol: 'http',
+                  nexusUrl: '172.17.0.1:8081',
+                  groupId: 'QA',
+                  version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
+                  repository: 'petclinic-123',
+                  credentialsId: 'nexuslogin',
+                  artifacts: [
+                    [artifactId: 'petclinic',
+                     classifier: '',
+                     file: 'target/petclinic.war',
+                     type: 'war']
+                     ])
+            }
+        }
+    }
+}
